@@ -15,7 +15,9 @@ PyMethodDef context_methods[] = {
     {"eval", (PyCFunction) context_eval, METH_VARARGS | METH_KEYWORDS, NULL},
     {"new", (PyCFunction) context_construct_new_object, METH_VARARGS | METH_KEYWORDS, "Creates a new JavaScript object from a given constructor function"},
     {"expose", (PyCFunction) context_expose, METH_VARARGS | METH_KEYWORDS, NULL},
+    {"expose_readonly", (PyCFunction) context_expose_readonly, METH_VARARGS | METH_KEYWORDS, NULL},
     {"expose_module", (PyCFunction) context_expose_module, METH_O, NULL},
+    {"expose_module_readonly", (PyCFunction) context_expose_module_readonly, METH_O, NULL},
     {"gc", (PyCFunction) context_gc, METH_NOARGS, NULL},
     {NULL},
 };
@@ -194,6 +196,43 @@ PyObject *context_expose(context_c *self, PyObject *args, PyObject *kwargs) {
     Py_RETURN_NONE;
 }
 
+PyObject *context_expose_readonly(context_c *self, PyObject *args, PyObject *kwargs) {
+    IN_V8;
+    Local<Context> context = self->js_context.Get(isolate);
+    Local<Object> global = context->Global();
+
+    args = PySequence_Fast(args, "sequence required");
+    PyErr_PROPAGATE(args);
+    for (int i = 0; i < PySequence_Fast_GET_SIZE(args); i++) {
+        PyObject *object = PySequence_Fast_GET_ITEM(args, i);
+        PyErr_PROPAGATE(object);
+        if (!PyObject_HasAttrString(object, "__name__")) {
+            PyErr_SetString(PyExc_TypeError, "Object passed to expose must have a __name__");
+            return NULL;
+        }
+    }
+    for (int i = 0; i < PySequence_Fast_GET_SIZE(args); i++) {
+        PyObject *object = PySequence_Fast_GET_ITEM(args, i);
+        PyErr_PROPAGATE(object);
+        PyObject *name = PyObject_GetAttrString(object, "__name__");
+        PyErr_PROPAGATE(name);
+        global->DefineOwnProperty(context, js_from_py(name, context).As<String>(),
+            js_from_py(object, context), ReadOnly);
+    }
+    Py_DECREF(args);
+
+    if (kwargs != NULL) {
+        PyObject *name, *object;
+        Py_ssize_t pos = 0;
+        while (PyDict_Next(kwargs, &pos, &name, &object)) {
+            global->DefineOwnProperty(context, js_from_py(name, context).As<String>(),
+                js_from_py(object, context), ReadOnly);
+        }
+    }
+
+    Py_RETURN_NONE;
+}
+
 PyObject *context_expose_module(context_c *self, PyObject *module) {
     if (!PyModule_Check(module)) {
         PyErr_SetString(PyExc_TypeError, "context_expose_module requires a module");
@@ -225,6 +264,42 @@ PyObject *context_expose_module(context_c *self, PyObject *module) {
     PyObject *no_args = PyTuple_New(0);
     PyErr_PROPAGATE(no_args);
     PyObject *result = context_expose(self, no_args, members);
+    Py_DECREF(no_args);
+    Py_DECREF(members);
+    return result;
+}
+
+PyObject *context_expose_module_readonly(context_c *self, PyObject *module) {
+    if (!PyModule_Check(module)) {
+        PyErr_SetString(PyExc_TypeError, "context_expose_module requires a module");
+        return NULL;
+    }
+
+    PyObject *module_all_slow = PyObject_Dir(module);
+    PyErr_PROPAGATE(module_all_slow);
+    PyObject *module_all = PySequence_Fast(module_all_slow, "o noes");
+    Py_DECREF(module_all_slow);
+    PyErr_PROPAGATE(module_all);
+    PyObject *members = PyDict_New();
+    PyErr_PROPAGATE(members);
+    for (int i = 0; i < PySequence_Fast_GET_SIZE(module_all); i++) {
+        PyObject *name = PySequence_Fast_GET_ITEM(module_all, i);
+        if (!PyString_StartsWithString(name, "_")) {
+            PyObject *value = PyObject_GetAttr(module, name);
+            if (value == NULL) {
+                Py_DECREF(members);
+                return NULL;
+            }
+            if (PyDict_SetItem(members, name, value) < 0) {
+                Py_DECREF(members);
+                return NULL;
+            }
+        }
+    }
+
+    PyObject *no_args = PyTuple_New(0);
+    PyErr_PROPAGATE(no_args);
+    PyObject *result = context_expose_readonly(self, no_args, members);
     Py_DECREF(no_args);
     Py_DECREF(members);
     return result;

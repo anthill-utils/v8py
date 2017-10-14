@@ -22,7 +22,9 @@ PyObject *context_new(PyTypeObject *type, PyObject *args, PyObject *kwargs);
 PyObject *context_construct_new_object(context_c *self, PyObject *args, PyObject *kwargs);
 PyObject *context_eval(context_c *self, PyObject *args, PyObject *kwargs);
 PyObject *context_expose(context_c *self, PyObject *args, PyObject *kwargs);
+PyObject *context_expose_readonly(context_c *self, PyObject *args, PyObject *kwargs);
 PyObject *context_expose_module(context_c *self, PyObject *module);
+PyObject *context_expose_module_readonly(context_c *self, PyObject *module);
 PyObject *context_gc(context_c *self);
 
 // Embedder data slots
