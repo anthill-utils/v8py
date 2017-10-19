@@ -21,6 +21,16 @@ def test_javascript_to_python(context, ErrorClass):
     with pytest.raises(JSException):
         context.eval('throw new Error()')
 
+def test_javascript_custom_error(context):
+
+    context.glob.CustomError = CustomError
+
+    with pytest.raises(JSException) as exc_info:
+        context.eval('throw new CustomError()')
+
+    assert isinstance(exc_info.value.value, CustomError)
+    assert exc_info.value.value.method() == 'method'
+
 def test_python_to_javascript(context, ErrorClass):
     context.eval("""
 try {
