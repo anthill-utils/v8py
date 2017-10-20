@@ -10,7 +10,6 @@ typedef struct {
     PyBaseExceptionObject base;
     Persistent<Value> exception;
     Persistent<Message> message;
-    Persistent<Context> context;
 } js_exception;
 extern PyTypeObject js_exception_type;
 int js_exception_type_init();
