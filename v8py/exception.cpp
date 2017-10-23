@@ -94,6 +94,7 @@ void py_throw_js(Local<Value> js_exc, Local<Message> js_message) {
         PyErr_SetObject((PyObject *) &js_exception_type, exception);
     }
 
+    /*
     Local<StackTrace> stack_trace = js_message->GetStackTrace();
     for (int i = 0; i < stack_trace->GetFrameCount(); i++) {
         Local<StackFrame> stack_frame = stack_trace->GetFrame(i);
@@ -142,6 +143,7 @@ void py_throw_js(Local<Value> js_exc, Local<Message> js_message) {
         Py_DECREF(code);
         PyTraceBack_Here(frame);
     }
+    */
 }
 
 void js_throw_py() {
