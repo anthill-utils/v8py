@@ -37,14 +37,14 @@ def assert_is_js_frame(frame, script):
     assert frame.f_globals['__name__'].startswith('javascript')
     assert frame.f_globals['__loader__'].get_source(frame.f_globals['__name__']) == script
 
-def do_not_test_tracebacks(context, ErrorClass):
+def test_tracebacks(context, ErrorClass):
     with pytest.raises(ErrorClass) as exc_info:
         context.eval('throw_exception()')
 
     js_frame = exc_info.traceback[1].frame
     assert_is_js_frame(js_frame, 'throw_exception()')
 
-def do_not_test_conservation(context, ErrorClass):
+def test_conservation(context, ErrorClass):
     context.eval('function f() { throw_exception(); }')
     with pytest.raises(ErrorClass) as exc_info:
         context.eval('f()')
