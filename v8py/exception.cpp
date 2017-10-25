@@ -27,13 +27,14 @@ int js_exception_type_init() {
 
 PyObject *js_exception_new(Local<Value> exception, Local<Message> message) {
     HandleScope hs(isolate);
-    Local<Context> no_ctx;
+    Local<Context> context = isolate->GetCurrentContext();
     js_exception *self = (js_exception *) js_exception_type.tp_alloc(&js_exception_type, 0);
     PyErr_PROPAGATE(self);
     self->exception.Reset(isolate, exception);
     self->message.Reset(isolate, message);
+    self->context.Reset(isolate, context);
 
-    PyObject *py_message = py_from_js(exception->ToString(), no_ctx);
+    PyObject *py_message = py_from_js(exception->ToString(), context);
     PyErr_PROPAGATE(py_message);
 #if PY_MAJOR_VERSION < 3
     self->base.message = py_message;
@@ -46,13 +47,15 @@ PyObject *js_exception_new(Local<Value> exception, Local<Message> message) {
 }
 
 PyObject *js_exception_get_value(js_exception *self, void *shit) {
-    Local<Context> no_ctx;
-    return py_from_js(self->exception.Get(isolate), no_ctx);
+    IN_V8;
+    Local<Context> context = self->context.Get(isolate);
+    return py_from_js(self->exception.Get(isolate), context);
 }
 
 void js_exception_dealloc(js_exception *self) {
     self->exception.Reset();
     self->message.Reset();
+    self->context.Reset();
     Py_TYPE(self)->tp_free((PyObject *) self);
 }
 
@@ -81,10 +84,15 @@ void py_throw_js(Local<Value> js_exc, Local<Message> js_message) {
         PyObject *exc_type = (PyObject *) exc_object->GetInternalField(2).As<External>()->Value();
         PyObject *exc_value = (PyObject *) exc_object->GetInternalField(1).As<External>()->Value();
         PyObject *exc_traceback = (PyObject *) exc_object->GetInternalField(3).As<External>()->Value();
-        if (exc_type == NULL && exc_traceback == NULL) {
-            PyErr_SetObject((PyObject *) Py_TYPE(exc_value), exc_value);
-        } else {
+
+        if (exc_type) {
             PyErr_Restore(exc_type, exc_value, exc_traceback);
+        } else {
+            PyObject *exception = js_exception_new(js_exc, js_message);
+            if (exception == NULL) {
+                return;
+            }
+            PyErr_SetObject((PyObject *) &js_exception_type, exception);
         }
     } else {
         PyObject *exception = js_exception_new(js_exc, js_message);
