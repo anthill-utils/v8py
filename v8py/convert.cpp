@@ -202,7 +202,7 @@ Local<Value> js_from_py(PyObject *value, Local<Context> context) {
         return hs.Escape(array);
     }
 
-    if (PyFunction_Check(value)) {
+    if (PyFunction_Check(value) || PyMethod_Check(value)) {
         py_function *templ = (py_function *) py_function_to_template(value);
         return hs.Escape(py_template_to_function(templ, context));
     }
