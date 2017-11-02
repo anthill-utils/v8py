@@ -14,6 +14,7 @@ void py_class_construct_callback(const FunctionCallbackInfo<Value> &info) {
         isolate->ThrowException(Exception::TypeError(JSTR("Constructor requires 'new' operator")));
         return;
     }
+    Py_BLOCK_THREADS
     if (PyObject_HasAttrString(self->cls, "__v8py_unconstructable__")) {
         PyObject *format_args = Py_BuildValue("O", self->cls_name);
         JS_PROPAGATE_PY(format_args);
@@ -32,6 +33,7 @@ void py_class_construct_callback(const FunctionCallbackInfo<Value> &info) {
     PyObject *new_object = PyObject_Call(self->cls, pys_from_jss(info, context), NULL);
     JS_PROPAGATE_PY(new_object);
     py_class_init_js_object(js_new_object, new_object, context);
+    Py_UNBLOCK_THREADS
 }
 
 void py_class_method_callback(const FunctionCallbackInfo<Value> &info) {
@@ -43,6 +45,7 @@ void py_class_method_callback(const FunctionCallbackInfo<Value> &info) {
         js_self = js_self->GetPrototype().As<Object>();
     }
     PyObject *self = (PyObject *) js_self->GetInternalField(1).As<External>()->Value();
+    Py_BLOCK_THREADS
     PyObject *args = pys_from_jss(info, context);
     JS_PROPAGATE_PY(args);
     // add self onto the beginning of the arg list
@@ -69,6 +72,7 @@ void py_class_method_callback(const FunctionCallbackInfo<Value> &info) {
     JS_PROPAGATE_PY(retval);
     info.GetReturnValue().Set(js_from_py(retval, context));
     Py_DECREF(retval);
+    Py_UNBLOCK_THREADS
 }
 
 // --- Interceptors ---
@@ -120,7 +124,9 @@ template <class T> inline extern PyObject *get_self(const PropertyCallbackInfo<T
     }
 
 void getter_callback(PyObject *key, Info(Value)) {
-    SETUP; CHECK_ATTR;
+    SETUP;
+    Py_BLOCK_THREADS
+    CHECK_ATTR;
     if (PyIndex_Check(key) && PyNumber_AsSsize_t(key, NULL) >= PyObject_Size(get_self(info))) {
         // index out of bounds
         return;
@@ -130,19 +136,24 @@ void getter_callback(PyObject *key, Info(Value)) {
     JS_PROPAGATE_PY(value);
     info.GetReturnValue().Set(js_from_py(value, context));
     Py_DECREF(value);
+    Py_UNBLOCK_THREADS
 }
 void named_getter(Local<Name> js_name, Info(Value)) NAMED(getter_callback(name, info))
 void indexed_getter(uint32_t index, Info(Value)) INDEXED(getter_callback(idx, info))
 
 void setter_callback(PyObject *key, Local<Value> js_value, Info(Value)) {
-    SETUP; CHECK_ATTR;
+    SETUP;
+    Py_BLOCK_THREADS
+    CHECK_ATTR;
     PyObject *value = py_from_js(js_value, context);
     JS_PROPAGATE_PY(value);
     if (PyObject_SetItem(get_self(info), key, value) < 0) {
         Py_DECREF(value);
         js_throw_py();
+        Py_UNBLOCK_THREADS
         return;
     }
+    Py_UNBLOCK_THREADS
     info.GetReturnValue().Set(js_value);
     Py_DECREF(value);
 }
@@ -150,9 +161,11 @@ void named_setter(Local<Name> js_name, Local<Value> value, Info(Value)) NAMED(se
 void indexed_setter(uint32_t index, Local<Value> value, Info(Value)) INDEXED(setter_callback(idx, value, info))
 
 void deleter_callback(PyObject *key, Info(Boolean)) {
+    Py_BLOCK_THREADS
     CHECK_ATTR;
     if (PyObject_DelItem(get_self(info), key) < 0) {
         if (info.ShouldThrowOnError()) {
+            Py_UNBLOCK_THREADS
             isolate->ThrowException(Exception::TypeError(JSTR("Unable to delete property.")));
             return;
         }
@@ -160,17 +173,20 @@ void deleter_callback(PyObject *key, Info(Boolean)) {
     } else {
         info.GetReturnValue().Set(True(isolate));
     }
+    Py_UNBLOCK_THREADS
 }
 void named_deleter(Local<Name> js_name, Info(Boolean)) NAMED(deleter_callback(name, info))
 void indexed_deleter(uint32_t index, Info(Boolean)) INDEXED(deleter_callback(idx, info))
 
 void query_callback(PyObject *key, Info(Integer)) {
+    Py_BLOCK_THREADS
     CHECK_ATTR;
 
     PyObject *self = get_self(info);
     if (PyIndex_Check(key)) {
         // check for out of bounds index
         if (PyNumber_AsSsize_t(key, NULL) >= PyObject_Size(self)) {
+            Py_UNBLOCK_THREADS
             return;
         }
     } else {
@@ -182,7 +198,10 @@ void query_callback(PyObject *key, Info(Integer)) {
                 js_throw_py();
                 // intentional fall-through
             case 0:
+            {
+                Py_UNBLOCK_THREADS
                 return;
+            }
         }
     }
 
@@ -194,6 +213,7 @@ void query_callback(PyObject *key, Info(Integer)) {
     if (!PyObject_HasAttrString(cls, "__delitem__")) {
         descriptor |= DontDelete;
     }
+    Py_UNBLOCK_THREADS
     info.GetReturnValue().Set(descriptor);
 }
 void named_query(Local<Name> js_name, Info(Integer)) NAMED(query_callback(name, info))
@@ -201,6 +221,7 @@ void indexed_query(uint32_t index, Info(Integer)) INDEXED(query_callback(idx, in
 
 void named_enumerator(Info(Array)) {
     SETUP;
+    Py_BLOCK_THREADS
     PyObject *keys = PyObject_CallMethod(get_self(info), "keys", "");
     JS_PROPAGATE_PY(keys);
     Local<Array> js_keys = Array::New(isolate, PySequence_Length(keys));
@@ -214,13 +235,16 @@ void named_enumerator(Info(Array)) {
         js_keys->Set(context, i, js_from_py(item, context)).FromJust();
     }
     info.GetReturnValue().Set(js_keys);
+    Py_UNBLOCK_THREADS
 }
 void indexed_enumerator(Info(Array)) {
     SETUP;
+    Py_BLOCK_THREADS
     Py_ssize_t length = PyObject_Size(get_self(info));
     if (length < 0) {
         js_throw_py();
     }
+    Py_UNBLOCK_THREADS
     Local<Array> keys = Array::New(isolate, length);
     for (int i = 0; i < length; i++) {
         keys->Set(context, i, Integer::New(isolate, i));
@@ -232,22 +256,26 @@ void py_class_property_getter(Local<Name> js_name, Info(Value)) {
     HandleScope hs(isolate);
     Local<Context> context = isolate->GetCurrentContext();
 
+    Py_BLOCK_THREADS
     PyObject *name = py_from_js(js_name, context);
     JS_PROPAGATE_PY(name);
     PyObject *value = PyObject_GetAttr(get_self(info), name);
     JS_PROPAGATE_PY(value);
     info.GetReturnValue().Set(js_from_py(value, context));
+    Py_UNBLOCK_THREADS
 }
 
 void py_class_property_setter(Local<Name> js_name, Local<Value> js_value, Info(void)) {
     HandleScope hs(isolate);
     Local<Context> context = isolate->GetCurrentContext();
 
+    Py_BLOCK_THREADS
     PyObject *name = py_from_js(js_name, context);
     JS_PROPAGATE_PY(name);
     PyObject *value = py_from_js(js_value, context);
     JS_PROPAGATE_PY(value);
     int result = PyObject_SetAttr(get_self(info), name, value);
     JS_PROPAGATE_PY_(result);
+    Py_UNBLOCK_THREADS
 }
 

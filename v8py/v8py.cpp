@@ -15,6 +15,7 @@ using namespace v8;
 
 static Platform *current_platform = NULL;
 Isolate *isolate = NULL;
+PyThreadState *_save = NULL;
 void initialize_v8() {
     if (current_platform == NULL) {
         V8::InitializeICU();
@@ -82,7 +83,9 @@ PyObject *construct_new_object(PyObject *self, PyObject *args) {
     for (long i = 0; i < argc; i++) {
         argv[i] = js_from_py(PyTuple_GET_ITEM(args, i + 1), context);
     }
+    Py_UNBLOCK_THREADS
     MaybeLocal<Value> result = object->CallAsConstructor(argc, argv);
+    Py_BLOCK_THREADS
     delete[] argv;
     PY_PROPAGATE_JS;
 

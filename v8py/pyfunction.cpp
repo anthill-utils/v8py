@@ -77,12 +77,14 @@ static void py_function_callback(const FunctionCallbackInfo<Value> &info) {
     Local<Context> context = isolate->GetCurrentContext();
 
     py_function *self = (py_function *) info.Data().As<External>()->Value();
+    Py_BLOCK_THREADS
     PyObject *args = pys_from_jss(info, context);
     JS_PROPAGATE_PY(args);
     PyObject *result = PyObject_CallObject(self->function, args);
     JS_PROPAGATE_PY(result);
     Py_DECREF(args);
     Local<Value> js_result = js_from_py(result, context);
+    Py_UNBLOCK_THREADS
     Py_DECREF(result);
     info.GetReturnValue().Set(js_result);
 }

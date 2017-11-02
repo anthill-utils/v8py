@@ -34,7 +34,9 @@ PyObject *js_function_call(js_function *self, PyObject *args, PyObject *kwargs) 
     int argc = PyTuple_GET_SIZE(args);
     Local<Value> *argv = new Local<Value>[argc];
     jss_from_pys(args, argv, context);
+    Py_UNBLOCK_THREADS
     MaybeLocal<Value> result = object->CallAsFunction(context, js_this, argc, argv);
+    Py_BLOCK_THREADS
     delete[] argv;
     PY_PROPAGATE_JS;
     return py_from_js(result.ToLocalChecked(), context);

@@ -222,7 +222,9 @@ PyObject *context_eval(context_c *self, PyObject *args, PyObject *kwargs) {
     PySet_Add(self->scripts, program);
     Local<UnboundScript> unbound_script;
     if (self->has_debugger) {
+        Py_UNBLOCK_THREADS
         MaybeLocal<UnboundScript> maybe_script = script_compile(context, py_script->source, py_script->script_name);
+        Py_BLOCK_THREADS
         PY_PROPAGATE_JS;
         unbound_script = maybe_script.ToLocalChecked();
     } else {
@@ -240,7 +242,9 @@ PyObject *context_eval(context_c *self, PyObject *args, PyObject *kwargs) {
         }
     }
 
+    Py_UNBLOCK_THREADS
     MaybeLocal<Value> result = script->Run(context);
+    Py_BLOCK_THREADS
 
     if (timeout > 0) {
         pthread_cancel(breaker_id);

@@ -10,6 +10,7 @@ using namespace v8;
 
 extern Isolate *isolate;
 extern PyObject *null_object;
+extern PyThreadState *_save;
 
 #define NORETURN __attribute__ ((noreturn))
 
