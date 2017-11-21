@@ -30,7 +30,7 @@ extension = Extension('_v8py',
                       include_dirs=['v8py', 'v8/include'],
                       library_dirs=library_dirs,
                       libraries=libraries,
-                      extra_compile_args=['-std=c++11'],
+                      extra_compile_args=['-std=c++11', '-stdlib=libc++'],
                       )
 
 @contextmanager
