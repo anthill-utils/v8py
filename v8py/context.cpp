@@ -23,7 +23,6 @@ PyMethodDef context_methods[] = {
 // Python is wrong. The first entry is not modifiable and should be const char *
 PyGetSetDef context_getset[] = {
     {(char *) "glob", (getter) context_get_global, NULL, NULL, NULL},
-    {(char *) "timeout", (getter) context_get_timeout, (setter) context_set_timeout, NULL, NULL},
     {NULL},
 };
 PyMappingMethods context_mapping = {
@@ -50,11 +49,8 @@ int context_type_init() {
 PyObject *context_new(PyTypeObject *type, PyObject *args, PyObject *kwargs) {
     IN_V8;
 
-    double timeout = 0;
-    static const char *keywords[] = {"global", "timeout", NULL};
-
     PyObject *global = NULL;
-    if (PyArg_ParseTupleAndKeywords(args, kwargs, "|Od", (char **) keywords, &global, &timeout) < 0) {
+    if (PyArg_ParseTuple(args, "|O", &global) < 0) {
         return NULL;
     }
     if (global != NULL) {
@@ -71,7 +67,6 @@ PyObject *context_new(PyTypeObject *type, PyObject *args, PyObject *kwargs) {
 
     context_c *self = (context_c *) type->tp_alloc(type, 0);
     self->has_debugger = false;
-    self->timeout = timeout;
     PyErr_PROPAGATE(self);
 
     MaybeLocal<ObjectTemplate> global_template;
@@ -264,45 +259,18 @@ PyObject *context_expose_module_readonly(context_c *self, PyObject *module) {
     return result;
 }
 
-pthread_t breaker_id;
-useconds_t s_timeout;
-
 void *breaker_thread(void *param) {
-    useconds_t timeout = *(useconds_t *) param;
-    usleep(timeout);
+    double timeout = *(double *) param;
+    usleep((int) (timeout * 1000000));
     pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
     isolate->TerminateExecution();
     return NULL;
 }
 
-bool setup_timeout(double timeout) {
-    if (timeout > 0) {
-        s_timeout = (useconds_t) (timeout * 1000000);
-        errno = pthread_create(&breaker_id, NULL, breaker_thread, &s_timeout);
-        if (errno) {
-            PyErr_SetFromErrno(PyExc_OSError);
-            return false;
-        }
-    }
-    return true;
-}
-
-bool cleanup_timeout(double timeout) {
-    if (timeout > 0) {
-        pthread_cancel(breaker_id);
-        errno = pthread_join(breaker_id, NULL);
-        if (errno) {
-            PyErr_SetFromErrno(PyExc_OSError);
-            return false;
-        }
-    }
-    return true;
-}
-
 PyObject *context_eval(context_c *self, PyObject *args, PyObject *kwargs) {
     PyObject *program;
     PyObject *filename = Py_None;
-    double timeout = self->timeout;
+    double timeout = 0;
     static const char *keywords[] = {"program", "timeout", "filename", NULL};
     // python needs to fix their shit and make it const
     if (PyArg_ParseTupleAndKeywords(args, kwargs, "O|dO", (char **) keywords, &program, &timeout, &filename) < 0) {
@@ -338,9 +306,25 @@ PyObject *context_eval(context_c *self, PyObject *args, PyObject *kwargs) {
     Py_DECREF(program);
     Local<Script> script = unbound_script->BindToCurrentContext();
 
-    if (!setup_timeout(timeout)) return NULL;
+    pthread_t breaker_id;
+    if (timeout > 0) {
+        errno = pthread_create(&breaker_id, NULL, breaker_thread, &timeout);
+        if (errno) {
+            PyErr_SetFromErrno(PyExc_OSError);
+            return NULL;
+        }
+    }
+
     MaybeLocal<Value> result = script->Run(context);
-    if (!cleanup_timeout(timeout)) return NULL;
+
+    if (timeout > 0) {
+        pthread_cancel(breaker_id);
+        errno = pthread_join(breaker_id, NULL);
+        if (errno) {
+            PyErr_SetFromErrno(PyExc_OSError);
+            return NULL;
+        }
+    }
 
     PY_PROPAGATE_JS;
     return py_from_js(result.ToLocalChecked(), context);
@@ -382,15 +366,6 @@ PyObject *context_get_current(PyObject *shit, PyObject *fuck) {
     PyObject *context = (PyObject *) current_context->GetEmbedderData(CONTEXT_OBJECT_SLOT).As<External>()->Value();
     Py_INCREF(context);
     return context;
-}
-
-PyObject *context_get_timeout(context_c *self, void *shit) {
-    return PyFloat_FromDouble(self->timeout);
-}
-
-int *context_set_timeout(context_c *self, PyObject *value, void *shit) {
-    self->timeout = PyFloat_AsDouble(value);
-    return 0;
 }
 
 PyObject *context_get_global(context_c *self, void *shit) {

@@ -1,13 +1,8 @@
 import _v8py
 
-
-class PlainDebugger(_v8py.Debugger):
-    pass
-
-
 class Debugger(_v8py.Debugger):
     def __init__(self, context):
-        _v8py.Debugger.__init__(self, context)
+        super(self.__class__, self).__init__(context)
         self.sequence = 0
         self.last_message = None
         self.loop_nesting = 0
