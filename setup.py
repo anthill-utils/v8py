@@ -25,12 +25,17 @@ library_dirs = ['v8/out/{}'.format(MODE),
 if sys.platform.startswith('linux'):
     libraries.append('rt')
 
+extra_compile_args = ['-std=c++11']
+
+if sys.platform.startswith('darwin'):
+    extra_compile_args.append('-stdlib=libc++')
+
 extension = Extension('_v8py',
                       sources=sources,
                       include_dirs=['v8py', 'v8/include'],
                       library_dirs=library_dirs,
                       libraries=libraries,
-                      extra_compile_args=['-std=c++11', '-stdlib=libc++'],
+                      extra_compile_args=extra_compile_args,
                       )
 
 @contextmanager
