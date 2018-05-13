@@ -94,11 +94,20 @@ PyObject *py_from_js(Local<Value> value, Local<Context> context) {
     if (value->IsString()) {
         Local<String> str_value = value.As<String>();
         size_t bufsize = str_value->Length() * sizeof(uint16_t);
-        uint16_t *buf = (uint16_t *) malloc(bufsize);
-        PyErr_PROPAGATE(buf);
-        str_value->Write(buf, 0, bufsize, String::WriteOptions::NO_NULL_TERMINATION);
-        PyObject *py_value = PyUnicode_DecodeUTF16((const char *) buf, bufsize, NULL, NULL);
-        free(buf);
+
+        PyObject *py_value;
+
+        if (bufsize <= STRING_BUFFER_SIZE) {
+            str_value->Write(string_buffer, 0, -1, String::WriteOptions::NO_NULL_TERMINATION);
+            py_value = PyUnicode_DecodeUTF16((const char *) string_buffer, bufsize, NULL, NULL);
+        } else {
+            uint16_t *buf = (uint16_t *) malloc(bufsize);
+            PyErr_PROPAGATE(buf);
+            str_value->Write(buf, 0, -1, String::WriteOptions::NO_NULL_TERMINATION);
+            py_value = PyUnicode_DecodeUTF16((const char *) buf, bufsize, NULL, NULL);
+            free(buf);
+        }
+
         return py_value;
     }
     if (value->IsUint32() || value->IsInt32()) {
