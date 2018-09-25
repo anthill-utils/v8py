@@ -22,6 +22,7 @@ static void js_promise_rejected_callback(const FunctionCallbackInfo<Value> &info
 PyMethodDef context_methods[] = {
     {"eval", (PyCFunction) context_eval, METH_VARARGS | METH_KEYWORDS, NULL},
     {"async_call", (PyCFunction) context_async_call, METH_VARARGS | METH_KEYWORDS, NULL},
+    {"bind", (PyCFunction) context_bind_py_function, METH_VARARGS, NULL},
     {"expose", (PyCFunction) context_expose, METH_VARARGS | METH_KEYWORDS, NULL},
     {"expose_module", (PyCFunction) context_expose_module, METH_O, NULL},
     {"gc", (PyCFunction) context_gc, METH_NOARGS, NULL},
@@ -162,6 +163,12 @@ static void js_promise_rejected_callback(const FunctionCallbackInfo<Value> &info
         Py_DECREF(result);
     }
 }
+
+Local<Function> bind_function(context_c *self, Local<Context> context, int argc, Local<Value> argv[], Local<Function> function) {
+    Local<Function> bind = self->bind_function.Get(isolate);
+    return bind->Call(context, function, argc, argv).ToLocalChecked().As<Function>();
+}
+
 PyObject *context_async_call(context_c *self, PyObject *args, PyObject *kwargs) {
     static const char *keywords[] = { "function", "args", "future_function", NULL };
 
@@ -336,6 +343,7 @@ void context_dealloc(context_c *self) {
     self->js_context.Reset();
     self->promise_fulfilled.Reset();
     self->promise_rejected.Reset();
+    self->bind_function.Reset();
     Py_DECREF(self->js_object_cache);
     Py_DECREF(self->scripts);
     Py_TYPE(self)->tp_free((PyObject *) self);
