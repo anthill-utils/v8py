@@ -8,9 +8,11 @@
 
 using namespace v8;
 
-typedef struct {
+typedef struct context_c_ {
     PyObject_HEAD
     Persistent<Context> js_context;
+    Persistent<Function> promise_fulfilled;
+    Persistent<Function> promise_rejected;
     PyObject *js_object_cache;
     PyObject *scripts;
     bool has_debugger;
@@ -26,6 +28,7 @@ PyObject *context_new(PyTypeObject *type, PyObject *args, PyObject *kwargs);
 PyObject *context_eval(context_c *self, PyObject *args, PyObject *kwargs);
 PyObject *context_expose(context_c *self, PyObject *args, PyObject *kwargs);
 PyObject *context_expose_module(context_c *self, PyObject *module);
+PyObject *context_async_call(context_c *self, PyObject *args, PyObject *kwargs);
 PyObject *context_gc(context_c *self);
 
 // Embedder data slots

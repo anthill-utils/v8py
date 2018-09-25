@@ -16,8 +16,12 @@
 
 using namespace v8;
 
+static void js_promise_fulfilled_callback(const FunctionCallbackInfo<Value> &info);
+static void js_promise_rejected_callback(const FunctionCallbackInfo<Value> &info);
+
 PyMethodDef context_methods[] = {
     {"eval", (PyCFunction) context_eval, METH_VARARGS | METH_KEYWORDS, NULL},
+    {"async_call", (PyCFunction) context_async_call, METH_VARARGS | METH_KEYWORDS, NULL},
     {"expose", (PyCFunction) context_expose, METH_VARARGS | METH_KEYWORDS, NULL},
     {"expose_module", (PyCFunction) context_expose_module, METH_O, NULL},
     {"gc", (PyCFunction) context_gc, METH_NOARGS, NULL},
@@ -113,11 +117,225 @@ PyObject *context_new(PyTypeObject *type, PyObject *args, PyObject *kwargs) {
         py_class_init_js_object(context->Global()->GetPrototype().As<Object>(), global, context);
     }
 
+    Local<Function> promise_fulfilled = Function::New(context, js_promise_fulfilled_callback).ToLocalChecked();
+    self->promise_fulfilled.Reset(isolate, promise_fulfilled);
+
+    Local<Function> promise_rejected = Function::New(context, js_promise_rejected_callback).ToLocalChecked();
+    self->promise_rejected.Reset(isolate, promise_rejected);
+
+    Local<Object> function_prototype =
+        context->Global()->Get(JSTR("Function")).As<Object>()->GetPrototype().As<Object>();
+
+    Local<Function> function_bind = function_prototype->Get(JSTR("bind")).As<Function>();
+
+    self->bind_function.Reset(isolate, function_bind);
+
     return (PyObject *) self;
+}
+
+static void js_promise_fulfilled_callback(const FunctionCallbackInfo<Value> &info) {
+    HandleScope hs(isolate);
+    Local<Context> context = isolate->GetCurrentContext();
+    PyObject *future = (PyObject *) info[0].As<External>()->Value();
+    PyObject *set_result = PyUnicode_FromString("set_result");
+    PyObject *value = py_from_js(info[1], context);
+    PyObject *result = PyObject_CallMethodObjArgs(future, set_result, value, NULL);
+    Py_DECREF(set_result);
+    Py_DECREF(value);
+    Py_DECREF(future);
+    if (result) {
+        Py_DECREF(result);
+    }
+}
+
+static void js_promise_rejected_callback(const FunctionCallbackInfo<Value> &info) {
+    HandleScope hs(isolate);
+    Local<Context> context = isolate->GetCurrentContext();
+    PyObject *future = (PyObject *) info[0].As<External>()->Value();
+    PyObject *set_exception = PyUnicode_FromString("set_exception");
+    PyObject *value = py_from_js(info[1], context);
+    PyObject *result = PyObject_CallMethodObjArgs(future, set_exception, value, NULL);
+    Py_DECREF(set_exception);
+    Py_DECREF(value);
+    Py_DECREF(future);
+    if (result) {
+        Py_DECREF(result);
+    }
+}
+PyObject *context_async_call(context_c *self, PyObject *args, PyObject *kwargs) {
+    static const char *keywords[] = { "function", "args", "future_function", NULL };
+
+    PyObject *call_function;
+    PyObject *call_args;
+    PyObject *future_function;
+
+    if (PyArg_ParseTupleAndKeywords(args, kwargs, "OOO", (char **) keywords,
+        &call_function, &call_args, &future_function) < 0) {
+        return NULL;
+    }
+
+    if (!PyCallable_Check(future_function)) {
+        PyErr_SetString(PyExc_TypeError, "future_function is not a callable");
+        return NULL;
+    }
+
+    if (!PyObject_IsInstance(call_function, (PyObject *) &js_function_type)) {
+        PyErr_SetString(PyExc_TypeError, "function is not a JSFunction");
+        return NULL;
+    }
+
+    PyObject *future = PyObject_CallObject(future_function, NULL);
+    if (future == NULL) {
+        return NULL;
+    }
+
+    js_function *function = (js_function *)call_function;
+
+    IN_V8;
+    Local<Object> object = function->object.Get(isolate);
+    IN_CONTEXT(object->CreationContext());
+    JS_TRY
+
+    Local<Value> js_this;
+    if (function->js_this.IsEmpty()) {
+        js_this = Undefined(isolate);
+    } else {
+        js_this = function->js_this.Get(isolate);
+    }
+    int argc = PyTuple_GET_SIZE(call_args);
+    MaybeLocal<Value> result;
+
+    if (argc <= 16) {
+        Local<Value> argv[argc];
+        jss_from_pys(call_args, argv, context);
+        result = object->CallAsFunction(context, js_this, argc, argv);
+    } else {
+        Local<Value> *argv = new Local<Value>[argc];
+        jss_from_pys(call_args, argv, context);
+        result = object->CallAsFunction(context, js_this, argc, argv);
+        delete[] argv;
+    }
+
+    PY_PROPAGATE_JS;
+
+    Local<Value> checkedResult = result.ToLocalChecked();
+
+    if (checkedResult->IsPromise()) {
+        Local<Promise> promise = checkedResult.As<Promise>();
+
+        switch (promise->State()) {
+            case Promise::PromiseState::kPending: {
+                Py_INCREF(future);
+                Local<Function> unbound_fulfilled = self->promise_fulfilled.Get(isolate);
+                Local<Function> unbound_rejected = self->promise_rejected.Get(isolate);
+
+                Local<Value> argv[2];
+                argv[0] = Null(isolate);
+                argv[1] = External::New(isolate, future);
+
+                Local<Function> bound_fulfilled = bind_function(self, context, 2, argv, unbound_fulfilled);
+                Local<Function> bound_rejected = bind_function(self, context, 2, argv, unbound_rejected);
+
+                promise->Then(context, bound_fulfilled);
+                promise->Catch(context, bound_rejected);
+
+                break;
+            }
+            case Promise::PromiseState::kFulfilled: {
+                PyObject *value = py_from_js(promise->Result(), context);
+
+                PyObject *set_result = PyUnicode_FromString("set_result");
+                PyObject *result = PyObject_CallMethodObjArgs(future, set_result, value, NULL);
+                Py_DECREF(value);
+                Py_DECREF(set_result);
+                if (result) {
+                    Py_DECREF(result);
+                } else {
+                    Py_DECREF(future);
+                    return NULL;
+                }
+
+                break;
+            }
+            case Promise::PromiseState::kRejected: {
+                PyObject *value = py_from_js(promise->Result(), context);
+                PyObject *set_exception = PyUnicode_FromString("set_exception");
+                PyObject *result = PyObject_CallMethodObjArgs(future, set_exception, value, NULL);
+                Py_DECREF(value);
+                Py_DECREF(set_exception);
+                if (result) {
+                    Py_DECREF(result);
+                } else {
+                    Py_DECREF(future);
+                    return NULL;
+                }
+
+                break;
+            }
+        }
+
+    } else {
+
+        PyObject *value = py_from_js(result.ToLocalChecked(), context);
+
+        PyObject *set_result = PyUnicode_FromString("set_result");
+        PyObject *result = PyObject_CallMethodObjArgs(future, set_result, value, NULL);
+        Py_DECREF(value);
+        Py_DECREF(set_result);
+        if (result) {
+            Py_DECREF(result);
+        } else {
+            Py_DECREF(future);
+            return NULL;
+        }
+    }
+
+    return future;
+}
+
+PyObject *context_bind_py_function(context_c *self, PyObject *args) {
+    IN_V8;
+    IN_CONTEXT(self->js_context.Get(isolate))
+    JS_TRY
+
+    int argc = (int)PyTuple_GET_SIZE(args);
+    if (argc < 2) {
+        PyErr_SetString(PyExc_TypeError, "This function requires at least 2 arguments");
+        return NULL;
+    }
+
+    // get the function to bind
+    PyObject *py_function = PyTuple_GET_ITEM(args, 0);
+    if (!PyFunction_Check(py_function) && !PyMethod_Check(py_function)) {
+        PyErr_SetString(PyExc_TypeError, "First argument must be a python function or method");
+        return NULL;
+    }
+
+    // get the arguments to bind
+    PyObject *py_function_args = PyTuple_GetSlice(args, 1, argc);
+
+    int py_argc = (int)PyTuple_GET_SIZE(py_function_args);
+    Local<Value> argv[py_argc + 1];
+    argv[0] = Null(isolate);
+    jss_from_pys(py_function_args, &argv[1], context);
+
+    // convert the python function into a javascript, without risking having a FunctionTemplate leak
+    Local<Function> converted_function = js_from_py(py_function, context).As<Function>();
+
+    // use a hack to do the javascript "currying" converted_function.bind(null, py_function_args)
+    Local<Function> bound_function = bind_function(self, context, py_argc + 1, argv, converted_function);
+
+    // release the arguments
+    Py_DECREF(py_function_args);
+
+    // give it back to the python
+    return py_from_js(bound_function, context);
 }
 
 void context_dealloc(context_c *self) {
     self->js_context.Reset();
+    self->promise_fulfilled.Reset();
+    self->promise_rejected.Reset();
     Py_DECREF(self->js_object_cache);
     Py_DECREF(self->scripts);
     Py_TYPE(self)->tp_free((PyObject *) self);
