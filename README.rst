@@ -45,12 +45,7 @@ Installation
 
 .. code-block:: bash
 
-    $ pip install v8py
-
-Heads up: it'll be stuck at "Running setup.py install for v8py" for literally
-hours. It's downloading and building V8, which is a really big program. If you
-want to contribute scripts for Travis CI to build and upload wheels for
-Mac/Linux, please do so.
+    $ pip install -i https://cdn.anthillplatform.org/python v8py
 
 Misc
 ----

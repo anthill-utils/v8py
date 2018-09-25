@@ -1,34 +1,44 @@
 language: python
-python:
-    - 2.7
-    - 3.5
+matrix:
+  include:
+    - os: linux
+      sudo: true
+      dist: xenial
+      env: PYTHON=3.5
+    - os: osx
+      env: PYTHON=3.5
 script:
-    - ./setup.py test
-    - pip uninstall -y greenstack && ./setup.py develop && python -c "import v8py"
-
+  - "./setup.py test"
+  - pip uninstall -y greenstack && ./setup.py develop && python -c "import v8py"
+  - "./setup.py sdist bdist_wheel"
 dist: trusty
 sudo: false
 group: beta
-
+before_install: |
+  if [ "$TRAVIS_OS_NAME" == "osx" ]; then
+    brew update
+    brew install openssl readline
+    brew outdated pyenv || brew upgrade pyenv
+    brew install pyenv-virtualenv
+    pyenv install $PYTHON
+    export PYENV_VERSION=$PYTHON
+    export PATH="/Users/travis/.pyenv/shims:${PATH}"
+    pyenv-virtualenv venv
+    source venv/bin/activate
+    python --version
+  fi
 install:
-    - pip install twine pytest greenstack
-    - export CFLAGS='-g -O0 --coverage'
-
-# it takes ages to compile v8 so don't do it too often
+  - |
+    if [[ $TRAVIS_OS_NAME == 'osx' ]]; then
+      brew install python@3
+    fi
+  - pip install twine pytest greenstack
 cache:
-    directories:
-        - v8
-
+  directories:
+  - v8
 after_success:
-    - bash <(curl -s https://codecov.io/bash)
-
-deploy:
-    provider: pypi
-    user: tbodt
-    password:
-        secure: TeSSoX1sjprFbi3BbK7vDNVXzM/nSxxbcVyxF0Itvu0jqSWQhcRvtEr74wdW4nTyNTBxlfY1+HbDqwvNeADb+kyaQdlzlR/zQ2V3GCQ5muN0R8Lslfi+EI5rMf/h1pNuPxSm6yYA4qogN3QMEY9CiUgOmSG7RGsAXtgMLR48h9qQ0UNCTW/DqozKFD5HIi8os0HoURFtJRPafXLsRbJS8StRZmEjQDvsrfcMYxwlLsNikbfSR8TvBbztEum4mi5OqLl9Jbz0QH4sqfxhouvikXDxZlWYMdPZOuEzXBfDrMWCJXGIekSbQQ14N/j2PDDjNTVF4/88Z25dleqHj2F8+e0Fm7YVlyCNYNylwCjcB9zBkVc1QcAtn2dEpyPXjjsDTIoSNgmRNqaabCSLLUePzHxWnIm/P9leMpu8fCEofHptPV+GEOK1csVspKzi7xZT1fbXQlF0TsExPpv3RN390J7SrVJ2lZOVYn8jiJ1AMc9pWIRuC4blHTkYiZFyVsdqCcwMyMLpoTsSrH4WI/tts3o6Rp+FZmENf2cxtW267XThMjHZxvH9BOd+6EKcBruKV1ux7+ObQZmpCrV4KBPShUukMyruA/R6fvXsAlD70AUPj/cyCHB6HszyYrFarCckgUPaUtWa3IUWgMzyEI5inyllj+cxcm9c65WsObY+Ico=
-    on:
-        tags: true
-        repo: tbodt/v8py
-    distributions: sdist bdist_wheel
-    skip_upload_docs: true
+  - curl -k --ftp-ssl --ftp-pasv -T dist/*.whl --user desertkun:${FTPS_PASSWORD}
+    ftp://ftp.keycdn.com/anthillplatform/python/v8py/
+env:
+  global:
+     secure: BhHmx/9DG85KW14O6gZC0NWh3Q9quV0gSVP5UsgC97bb/79yrihDOnuGYtOCIXLs9OsfXjipIkvVaV5VuPzdesEMKJiMeJW1mQdjgPR9fCifZllTWAiIcX/3FMRU4Va0Mg/QO2f8mVLhxOZMyXIdpj+trO8g2rGdX2JQtLLPBSexCbQyEiw6QKZTwqOieEbsdsKqCVxP6m8PbYeO8A0E3rm3LBQk6AvVy/QKdQaeTC6yRKVzeetF70GhVq3K3yTwZc6JWESdlpWjUU9mMBw5Ae2o7UJBNzSHJZ1f74Quj1718RUI+fcWz/IiUS4PFjmcvvuNiYFhk+PW3zrRuoG0+OJEzZD9Z5jOY94rY8MFu8wFDH58a1tQn2rgNnerGiCHXmGv6wcqjgLmkla/S5TsEEb9TNWiiomjDuBssJ8rUcHB4lh2BV1P0H7kiOmKH4Wgf8hfRjIrRJ/w0E6Xls2Bxu5NxJ9FXTAXJp7oRUr2/g3tAWccqyDPg9trMFM29CZuNJyUIZGHO2VaK5M6y9TjQQvdHtfGLnpXyBESki2n2qy382JnnIzaMCOdo5CJsVLwuiYaYRbIgJK+/D2tlr5KrTKuF08CAVmc0bB+xdmD57PD9a+O0AvBTRdgqyy793+9l91R1IX8nbIVn/LqZlzLPnQShHXzm1NXrBYZ69eoigQ=
