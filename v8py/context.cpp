@@ -212,16 +212,20 @@ PyObject *context_async_call(context_c *self, PyObject *args, PyObject *kwargs) 
     int argc = PyTuple_GET_SIZE(call_args);
     MaybeLocal<Value> result;
 
+#ifndef _WIN32
     if (argc <= 16) {
         Local<Value> argv[argc];
         jss_from_pys(call_args, argv, context);
         result = object->CallAsFunction(context, js_this, argc, argv);
     } else {
+#endif
         Local<Value> *argv = new Local<Value>[argc];
         jss_from_pys(call_args, argv, context);
         result = object->CallAsFunction(context, js_this, argc, argv);
         delete[] argv;
+#ifndef _WIN32
     }
+#endif
 
     PY_PROPAGATE_JS;
 
@@ -322,7 +326,7 @@ PyObject *context_bind_py_function(context_c *self, PyObject *args) {
     PyObject *py_function_args = PyTuple_GetSlice(args, 1, argc);
 
     int py_argc = (int)PyTuple_GET_SIZE(py_function_args);
-    Local<Value> argv[py_argc + 1];
+    Local<Value> *argv = new Local<Value>[py_argc + 1];
     argv[0] = Null(isolate);
     jss_from_pys(py_function_args, &argv[1], context);
 
@@ -331,6 +335,7 @@ PyObject *context_bind_py_function(context_c *self, PyObject *args) {
 
     // use a hack to do the javascript "currying" converted_function.bind(null, py_function_args)
     Local<Function> bound_function = bind_function(self, context, py_argc + 1, argv, converted_function);
+    delete[] argv;
 
     // release the arguments
     Py_DECREF(py_function_args);
