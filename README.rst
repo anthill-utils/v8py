@@ -34,18 +34,20 @@ Almost everything you'd expect to work just works, including:
 * Exceptions (they even subclass from Error!)
 * `Fully meme-compliant <https://github.com/tbodt/v8py/blob/master/v8py/kappa.h>`_
 
-Support
--------
-
-Linux, Mac is supported for both python2 and python3.
-Windows is also supported, but for python3 only.
-
 Installation
 ------------
 
 .. code-block:: bash
 
     $ pip install -i https://cdn.anthillplatform.org/python v8py
+
+The following versions are prebuilt (x64 only):
+
+* Windows: python 3.5+ (3.4 or older won't compile)
+* Mac Os X (10.13): python 3.4+
+* Linux: python 3.4+
+
+For other python versions consider building from source.
 
 Misc
 ----
